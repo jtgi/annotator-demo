@@ -1,8 +1,54 @@
+require('dotenv').config();
+
 const express = require('express');
-const os = require('os');
+const auth = require('./auth');
+const client = require('./client');
 
 const app = express();
 
-app.use(express.static('dist'));
-app.get('/api/getUsername', (req, res) => res.send({ username: os.userInfo().username }));
-app.listen(8080, () => console.log('Listening on port 8080!'));
+const annotatorAssetUrl = process.env.ANNOTATOR_ASSET_URL;
+
+app.set('view engine', 'ejs');
+app.use(express.static('public'));
+
+app.get('/annotator/embedded', async (req, res) => {
+    const { userId } = await auth.authenticate(req);
+    const transcripts = await client.getTranscripts();
+
+    let templateVars = { transcripts };
+
+    if (req.query.view) {
+        const transcriptSid = req.query.view;
+        const token = await client.getToken(transcriptSid, userId);
+        const iframeUrl = `${annotatorAssetUrl}?token=${token}`;
+
+        templateVars.iframeUrl = iframeUrl;
+        templateVars.activeTranscript = transcriptSid;
+    }
+
+    res.render('annotator-embedded', templateVars);
+});
+
+/**
+ * Renders a list of transcripts to be annotated. When a
+ * transcript sid is passed via a `view` query param it 
+ * will redirect to the standalone version of the annotator
+ * with the transcript passed.
+ */
+app.get('/annotator/standalone', async (req, res) => {
+    const { userId } = await auth.authenticate(req);
+    const transcripts = await client.getTranscripts();
+
+    let templateVars = { transcripts };
+
+    if (req.query.view) {
+        const transcriptSid = req.query.view;
+        const token = await client.getToken(transcriptSid, userId);
+        const url = `${annotatorAssetUrl}?token=${token}`;
+        return res.redirect(url);
+    }
+
+    res.render('annotator-standalone', templateVars);
+});
+
+app.listen(process.env.PORT || 8080, () => console.log(`Listening on port ${process.env.PORT || 8080}!`));
